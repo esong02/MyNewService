@@ -7,7 +7,14 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Text;
+using System.Timers;
 using System.Threading.Tasks;
+using System.Web.Http;
+using System.Web.Http.SelfHost;
+using Microsoft.Owin.Hosting;
+using MyNewService.API;
+using Common;
+using SampleServer;
 
 namespace MyNewService
 {
@@ -41,6 +48,11 @@ namespace MyNewService
         [DllImport("advapi32.dll", SetLastError = true)]
         private static extern bool SetServiceStatus(IntPtr handle, ref ServiceStatus serviceStatus);
 
+        //private HttpSelfHostServer _server;
+        //private readonly HttpSelfHostConfiguration _config;
+        public const string ServiceAddress = "http://localhost:2345";
+        public IDisposable _owinServer = null;
+
         public MyNewService(string[] args)
         {
             InitializeComponent();
@@ -58,29 +70,51 @@ namespace MyNewService
             eventLog1 = new EventLog();
             if (!EventLog.SourceExists(eventSourceName))
             {
-                System.Diagnostics.EventLog.CreateEventSource(eventSourceName, logName);
+                EventLog.CreateEventSource(eventSourceName, logName);
             }
             eventLog1.Source = eventSourceName;
             eventLog1.Log = logName;
+            FileHandler.WriteAsync("Testing file handler");
+            //_config = new HttpSelfHostConfiguration(ServiceAddress);
+            //_config.Routes.MapHttpRoute("DefaultApi", "api/{controller}/{id}", new { id = RouteParameter.Optional });
         }
 
         protected override void OnStart(string[] args)
         {
             //Update the service state to start pending
-            
             serviceStatus.dwCurrentState = ServiceState.SERVICE_START_PENDING;
             serviceStatus.dwWaitHint = 100000;
             SetServiceStatus(this.ServiceHandle, ref serviceStatus);
 
             eventLog1.WriteEntry("In OnStart");
-            System.Timers.Timer timer = new System.Timers.Timer();
-            timer.Interval = 60000;
+            FileHandler.WriteAsync("Starting service");
+            Timer timer = new Timer
+            {
+                Interval = 60000
+            };
             timer.Elapsed += new System.Timers.ElapsedEventHandler(this.OnTimer);
             timer.Start();
 
             // Update the service state to Running.  
             serviceStatus.dwCurrentState = ServiceState.SERVICE_RUNNING;
             SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+            FileHandler.WriteAsync("Opening service ");
+            //_server = new HttpSelfHostServer(_config);
+            //_server.OpenAsync();
+            _owinServer = WebApp.Start<StartUp>(url: ServiceAddress);
+
+            FileHandler.WriteAsync(
+                "Base Directory : " + Project.BaseDirectory +
+                "Base Address : " + Project.BaseAddress + 
+                "Connection String : " + Project.ConnectionString);
+
+            Project.GetRegKeys();
+
+            FileHandler.WriteAsync(
+                "Base Directory : " + Project.BaseDirectory +
+                "Base Address : " + Project.BaseAddress +
+                "Connection String : " + Project.ConnectionString);
         }
 
         public void OnTimer(object sender, System.Timers.ElapsedEventArgs args)
@@ -91,18 +125,28 @@ namespace MyNewService
 
         protected override void OnContinue()
         {
+            FileHandler.WriteAsync("Continuing service");
             eventLog1.WriteEntry("In onContinue");
             base.OnContinue();
         }
 
         protected override void OnStop()
         {
+            FileHandler.WriteAsync("Stopping service");
             serviceStatus.dwCurrentState = ServiceState.SERVICE_STOP_PENDING;
             SetServiceStatus(this.ServiceHandle, ref serviceStatus);
             eventLog1.WriteEntry("In onStop");
 
             serviceStatus.dwCurrentState = ServiceState.SERVICE_STOPPED;
             SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+            if (_owinServer != null)
+            {
+                _owinServer.Dispose();
+            }
+            base.OnStop();
+            //_server.CloseAsync().Wait();
+            //_server.Dispose();
         }
     }
 }
